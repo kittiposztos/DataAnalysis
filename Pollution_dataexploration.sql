@@ -1,3 +1,7 @@
+-- Analysing the air pollution of Graz between 2019 and 2023.
+
+-- Used SQL skills: Create view, CTE, Window fuctions
+
 -- checking for issues in data, looking for duplicates 
 
 SELECT distinct date, pollutant, count(*) FROM pollution.grazp
@@ -64,6 +68,42 @@ SELECT MONTH(date) as month, count(*) as days, round(avg(AvgConc),1) from grazq
 WHERE quality = "Unhealthy" 
 GROUP BY  MONTH(date)
 ORDER BY days DESC;
+
+-- Examining the difference between the previous year's pollution by pollutant using a window function
+
+WITH yearly_poll as (
+	SELECT YEAR(date) as year, pollutant, SUM(AvgConc) as yearly_conc from grazq
+    WHERE AvgConc > 0
+    GROUP BY Year(date), pollutant)
+SELECT year, pollutant, yearly_conc, 
+LAG(yearly_conc) OVER (PARTITION BY pollutant ORDER BY year) as prev_year_conc,
+yearly_conc - LAG(yearly_conc) OVER (PARTITION BY pollutant ORDER BY year) as diff
+FROM yearly_poll
+ORDER BY year, pollutant
+;
+
+-- assigning decrease and increase words to the previous year's change while filtering out 2019 (no previous year) and 2024 (not a complete year)
+
+WITH chg as (
+	WITH yearly_poll as (
+	SELECT YEAR(date) as year, pollutant, SUM(AvgConc) as yearly_conc from grazq
+    WHERE AvgConc > 0
+    GROUP BY Year(date), pollutant)
+SELECT year, pollutant, yearly_conc, 
+LAG(yearly_conc) OVER (PARTITION BY pollutant ORDER BY year) as prev_year_conc,
+yearly_conc - LAG(yearly_conc) OVER (PARTITION BY pollutant ORDER BY year) as diff,
+-- difference in percentage
+TRUNCATE(((yearly_conc - LAG(yearly_conc) OVER (PARTITION BY pollutant ORDER BY year)) / LAG(yearly_conc) OVER (PARTITION BY pollutant ORDER BY year)) * 100,2) as chg
+FROM yearly_poll
+ORDER BY year, pollutant)
+SELECT year, pollutant, diff, chg,
+	CASE WHEN diff < 0 THEN "decrease"
+		WHEN diff > 0 THEN "increase"
+        ELSE " "
+        END as yearly_change
+FROM chg
+WHERE year NOT IN (2019,2024)
+;
 
 -- some interesting facts/aggregations
 SELECT pollutant, MIN(AvgConc) as min, MAX(AvgConc) as max, AVG(AvgConc) as avg
